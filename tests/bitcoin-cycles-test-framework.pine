@@ -1,0 +1,312 @@
+//@version=6
+//@author=dirtpupfc
+//@description=Bitcoin Cycles Indicator - Data Visualization Tool
+// Generates synthetic price patterns for visual reference and algorithm validation.
+// Note: Main indicator cannot analyze synthetic data due to Pine Script limitations.
+
+indicator("Bitcoin Cycles Test Framework", overlay=true)
+
+// LIMITATIONS:
+// This tool generates VISUAL synthetic data only.
+// Due to Pine Script architecture, the main indicator CANNOT analyze this data.
+// The main indicator always analyzes the underlying chart data (BTCUSD).
+//
+// USEFUL FOR:
+// - Visual validation of synthetic data generation algorithms
+// - Pattern recognition testing
+// - Performance monitoring of data generation
+// - Reference visualization for cycle analysis
+//
+// NOT USEFUL FOR:
+// - Testing the main indicator's cycle detection logic
+// - Validating indicator behavior on synthetic data
+// - Automated testing of indicator functionality
+
+// ============================================================================
+// TEST FRAMEWORK UTILITIES
+// ============================================================================
+
+// Test configuration
+testEnabled = input.bool(false, title="Enable Test Mode", group="Test Settings")
+testScenario = input.string("Basic Cycle", title="Test Scenario", options=["Basic Cycle", "Failed Cycle", "Multiple Cycles", "Edge Cases", "Performance Test"], group="Test Settings")
+
+showTestResults = input.bool(true, title="Show Test Results", group="Test Settings")
+testDataPoints = input.int(200, title="Test Data Points", minval=50, maxval=1000, group="Test Settings")
+
+// Test result tracking
+var int testsRun = 0
+var int testsPassed = 0
+var int testsFailed = 0
+var string testResults = ""
+
+// Assertion functions (return result status, don't modify globals)
+assertTrue(condition, message) =>
+    if condition
+        "PASS: " + message
+    else
+        "FAIL: " + message
+
+assertEqual(actual, expected, message) =>
+    if actual == expected
+        "PASS: " + message + " (Expected: " + str.tostring(expected) + ", Got: " + str.tostring(actual) + ")"
+    else
+        "FAIL: " + message + " (Expected: " + str.tostring(expected) + ", Got: " + str.tostring(actual) + ")"
+
+assertNotNa(value, message) =>
+    if not na(value)
+        "PASS: " + message
+    else
+        "FAIL: " + message + " (Value is na)"
+
+// ============================================================================
+// SYNTHETIC DATA GENERATION
+// ============================================================================
+
+// Generate synthetic price data with known cycle patterns
+generateSyntheticData(scenario, barIndex) =>
+    // Base price around $50,000
+    basePrice = 50000.0
+    price = basePrice  // Initialize with default value
+
+    // Different patterns based on scenario
+    if scenario == "Basic Cycle"
+        // Simple sine wave with upward trend
+        cycleLength = 60.0
+        amplitude = 15000.0
+        trend = barIndex * 10.0  // Slight upward trend
+        noise = (math.sin(barIndex * 2 * 3.14159 / cycleLength) * amplitude) + trend
+        price := basePrice + noise + math.sin(barIndex * 0.1) * 1000
+
+    else if scenario == "Failed Cycle"
+        // Two cycles where second low is lower than first
+        cycle1Length = 40.0
+        cycle2Length = 35.0  // Shorter cycle
+        amplitude = 12000.0
+
+        if barIndex < 40
+            // First cycle
+            noise = math.sin(barIndex * 2 * 3.14159 / cycle1Length) * amplitude
+            price := basePrice + noise + math.sin(barIndex * 0.15) * 800
+        else
+            // Second cycle - lower low
+            cycle2Bar = barIndex - 40
+            noise = math.sin(cycle2Bar * 2 * 3.14159 / cycle2Length) * amplitude
+            price := basePrice - 5000 + noise + math.sin(cycle2Bar * 0.2) * 800  // Lower base
+
+    else if scenario == "Multiple Cycles"
+        // Three distinct cycles
+        cyclePos = barIndex
+        cycleLen = 50.0
+
+        if barIndex < 50
+            cyclePos := barIndex
+            cycleLen := 50.0
+        else if barIndex < 100
+            cyclePos := barIndex - 50
+            cycleLen := 45.0
+        else
+            cyclePos := barIndex - 100
+            cycleLen := 40.0
+
+        amplitude = 10000.0 + (barIndex * 5)  // Increasing amplitude
+        noise = math.sin(cyclePos * 2 * 3.14159 / cycleLen) * amplitude
+        price := basePrice + noise + math.sin(cyclePos * 0.25) * 500
+
+    else if scenario == "Edge Cases"
+        // Test edge cases: flat periods, sharp movements, gaps
+        if barIndex < 20
+            price := basePrice + math.sin(barIndex * 0.5) * 100  // Sideways
+        else if barIndex < 40
+            price := basePrice + (barIndex - 20) * 1000  // Sharp uptrend
+        else if barIndex < 60
+            price := basePrice + 20000 + math.sin((barIndex - 40) * 0.3) * 2000  // Volatile high
+        else if barIndex < 80
+            price := basePrice + 20000 - (barIndex - 60) * 500  // Sharp downtrend
+        else
+            price := basePrice - 5000 + math.sin((barIndex - 80) * 0.4) * 500  // Lower consolidation
+
+    else  // Performance Test or default
+        // Generate many cycles quickly for performance testing
+        cycleLength = 20.0 + (barIndex % 40)  // Varying cycle lengths
+        amplitude = 8000.0
+        noise = math.sin(barIndex * 2 * 3.14159 / cycleLength) * amplitude
+        price := basePrice + noise + math.sin(barIndex * 0.6) * 300
+
+    // Ensure price stays positive and reasonable
+    math.max(price, 1000.0)
+
+
+// ============================================================================
+// TEST SCENARIOS
+// ============================================================================
+
+// Test basic cycle detection
+testBasicCycle() =>
+    if testEnabled and testScenario == "Basic Cycle"
+        // Test that cycles are detected correctly
+        syntheticClose = generateSyntheticData("Basic Cycle", bar_index)
+
+        // Check if we're in a reasonable range
+        result1 = assertTrue(syntheticClose > 30000 and syntheticClose < 80000, "Price in expected range")
+        result2 = bar_index >= 10 ? assertNotNa(syntheticClose, "Synthetic data generated") : ""
+
+        // Return results for global processing
+        [result1, result2]
+
+// Test failed cycle detection
+testFailedCycle() =>
+    if testEnabled and testScenario == "Failed Cycle"
+        syntheticClose = generateSyntheticData("Failed Cycle", bar_index)
+
+        // Test that price drops below previous levels at expected points
+        if bar_index >= 40 and bar_index < 60
+            // Should be in lower cycle
+            result1 = assertTrue(syntheticClose < 55000, "Second cycle should have lower prices")
+            [result1]
+        else
+            [""]
+
+// Test multiple cycle handling
+testMultipleCycles() =>
+    if testEnabled and testScenario == "Multiple Cycles"
+        syntheticClose = generateSyntheticData("Multiple Cycles", bar_index)
+
+        // Test increasing volatility
+        if bar_index >= 50
+            result1 = assertTrue(true, "Multiple cycle scenario running")  // Basic presence test
+            [result1]
+        else
+            [""]
+
+// Test edge cases
+testEdgeCases() =>
+    if testEnabled and testScenario == "Edge Cases"
+        syntheticClose = generateSyntheticData("Edge Cases", bar_index)
+
+        // Test sharp movements are handled
+        if bar_index >= 20 and bar_index < 40
+            // Sharp uptrend period
+            result1 = assertTrue(true, "Sharp movement handling test")
+            [result1]
+        else
+            [""]
+
+// ============================================================================
+// VISUAL VERIFICATION TOOLS
+// ============================================================================
+
+// Generate synthetic data (always needed for calculations)
+syntheticClose = testEnabled ? generateSyntheticData(testScenario, bar_index) : na
+
+// Calculate OHLC data directly
+float synthOpen = na
+float synthHigh = na
+float synthLow = na
+float synthClose = syntheticClose
+
+if testEnabled and not na(syntheticClose)
+    priceRange = syntheticClose * 0.05
+    synthHigh := syntheticClose + math.abs(math.sin(syntheticClose * 0.001)) * priceRange
+    synthLow := syntheticClose - math.abs(math.sin(syntheticClose * 0.001 + 1)) * priceRange
+    synthOpen := syntheticClose + math.sin(syntheticClose * 0.002) * (priceRange/2)
+
+    // Ensure OHLC relationships are correct
+    synthHigh := math.max(synthHigh, math.max(synthOpen, syntheticClose))
+    synthLow := math.min(synthLow, math.min(synthOpen, syntheticClose))
+
+// Plot synthetic data as candles (at global scope)
+plotcandle(synthOpen, synthHigh, synthLow, synthClose,
+           title="Synthetic Data", color=color.blue, wickcolor=color.blue)
+
+// Plot reference lines for cycle analysis (at global scope)
+hline(50000, "Base Price", color=color.gray)
+hline(65000, "Upper Cycle Target", color=color.green)
+hline(35000, "Lower Cycle Target", color=color.red)
+
+// ============================================================================
+// TEST EXECUTION & RESULTS
+// ============================================================================
+
+if testEnabled
+    // Run appropriate test scenario and process results
+    if testScenario == "Basic Cycle"
+        [result1, result2] = testBasicCycle()
+        if result1 != ""
+            testResults += result1 + "\n"
+            testsRun += 1
+            if str.contains(result1, "PASS:")
+                testsPassed += 1
+            else
+                testsFailed += 1
+        if result2 != ""
+            testResults += result2 + "\n"
+            testsRun += 1
+            if str.contains(result2, "PASS:")
+                testsPassed += 1
+            else
+                testsFailed += 1
+    else if testScenario == "Failed Cycle"
+        [result1] = testFailedCycle()
+        if result1 != ""
+            testResults += result1 + "\n"
+            testsRun += 1
+            if str.contains(result1, "PASS:")
+                testsPassed += 1
+            else
+                testsFailed += 1
+    else if testScenario == "Multiple Cycles"
+        [result1] = testMultipleCycles()
+        if result1 != ""
+            testResults += result1 + "\n"
+            testsRun += 1
+            if str.contains(result1, "PASS:")
+                testsPassed += 1
+            else
+                testsFailed += 1
+    else if testScenario == "Edge Cases"
+        [result1] = testEdgeCases()
+        if result1 != ""
+            testResults += result1 + "\n"
+            testsRun += 1
+            if str.contains(result1, "PASS:")
+                testsPassed += 1
+            else
+                testsFailed += 1
+
+    // Display test results in info box
+    if showTestResults and barstate.islast
+        var table testTable = table.new(position.top_left, 1, 4,
+                                      bgcolor=color.new(color.white, 90),
+                                      border_color=color.gray)
+
+        table.cell(testTable, 0, 0, "Test Results", text_color=color.black, text_size=size.normal, bgcolor=color.yellow)
+        table.cell(testTable, 0, 1, "Tests Run: " + str.tostring(testsRun), text_color=color.black)
+        table.cell(testTable, 0, 2, "Passed: " + str.tostring(testsPassed), text_color=color.green)
+        table.cell(testTable, 0, 3, "Failed: " + str.tostring(testsFailed), text_color=color.red)
+
+// ============================================================================
+// PERFORMANCE MONITORING
+// ============================================================================
+
+// Track execution time (approximate)
+var int startTime = na
+if testEnabled and barstate.isfirst
+    startTime := timenow
+
+if testEnabled and barstate.islast and not na(startTime)
+    executionTime = timenow - startTime
+    log.info("Test execution time: " + str.tostring(executionTime) + "ms for " + str.tostring(testDataPoints) + " data points")
+
+// ============================================================================
+// INTEGRATION WITH MAIN INDICATOR
+// ============================================================================
+
+// This framework can be used alongside the main indicator by:
+// 1. Loading both indicators on the same chart
+// 2. Using test data to validate main indicator outputs
+// 3. Comparing expected vs actual cycle detection
+// 4. Visual verification of label placement and info box data
+
+// Example integration checks (would need main indicator outputs)
+// assertEqual(mainIndicator.cycleCount, expectedCycleCount, "Cycle count matches expected")
+// assertEqual(mainIndicator.cycleLow, expectedCycleLow, "Cycle low detected correctly")

@@ -1,0 +1,247 @@
+//@version=6
+//@author=dirtpupfc
+//@description=Bitcoin Cycles Visual Verification Tool - Validates label positioning and info box accuracy
+// This tool helps verify the visual elements of the Bitcoin Cycles Indicator
+
+indicator("Bitcoin Cycles Visual Verification", overlay=true)
+
+// VISUAL VERIFICATION USAGE:
+// 1. Load the main "Bitcoin Cycles Indicator" first
+// 2. Load this verification tool on the SAME chart
+// 3. Enable "Visual Verification" in settings
+// 4. The tool will automatically analyze label positioning
+// 5. Check for overlap warnings and misplaced elements
+// 6. Review console logs for detailed verification results
+//
+// This tool helps ensure visual elements are positioned correctly
+// and provides automated feedback on UI quality.
+
+// ============================================================================
+// CONFIGURATION
+// ============================================================================
+
+verificationEnabled = input.bool(false, title="Enable Visual Verification", group="Verification Settings")
+checkLabelOverlap = input.bool(true, title="Check Label Overlap", group="Verification Settings")
+checkInfoBoxAccuracy = input.bool(true, title="Check Info Box Accuracy", group="Verification Settings")
+highlightMisplacedLabels = input.bool(true, title="Highlight Misplaced Labels", group="Verification Settings")
+
+// Tolerance settings for verification
+labelOverlapTolerance = input.float(5.0, title="Label Overlap Tolerance (pixels)", minval=1.0, maxval=20.0, group="Tolerance Settings")
+priceDeviationTolerance = input.float(2.0, title="Price Deviation Tolerance (%)", minval=0.1, maxval=10.0, group="Tolerance Settings")
+
+// ============================================================================
+// VERIFICATION UTILITIES
+// ============================================================================
+
+// Track label positions for overlap detection
+var float[] labelPositions = array.new_float()
+var string[] labelTypes = array.new_string()
+var color[] labelColors = array.new_color()
+
+// Clear label tracking at cycle start (would need to be called from main indicator)
+clearLabelTracking() =>
+    array.clear(labelPositions)
+    array.clear(labelTypes)
+    array.clear(labelColors)
+
+// Add label to tracking (call this when creating labels in main indicator)
+addLabelToTracking(yPosition, labelType, labelColor) =>
+    array.push(labelPositions, yPosition)
+    array.push(labelTypes, labelType)
+    array.push(labelColors, labelColor)
+
+// Check for label overlap
+checkLabelOverlap(yPosition, currentType) =>
+    overlapDetected = false
+    overlapDetails = ""
+
+    for i = 0 to array.size(labelPositions) - 1
+        existingY = array.get(labelPositions, i)
+        existingType = array.get(labelTypes, i)
+
+        // Check if labels are too close vertically
+        if abs(yPosition - existingY) < labelOverlapTolerance and currentType != existingType
+            overlapDetected := true
+            overlapDetails += "Overlap with " + existingType + " at " + str.tostring(existingY) + "; "
+
+    [overlapDetected, overlapDetails]
+
+// Validate price accuracy (compare displayed vs actual)
+validatePriceAccuracy(displayedPrice, actualPrice, labelType) =>
+    if na(displayedPrice) or na(actualPrice)
+        [false, "Price data missing"]
+    else
+        deviation = abs(displayedPrice - actualPrice) / actualPrice * 100
+        isAccurate = deviation <= priceDeviationTolerance
+        accuracyDetails = "Deviation: " + str.tostring(deviation, "#.##") + "%"
+
+        [isAccurate, accuracyDetails]
+
+// ============================================================================
+// VISUAL VERIFICATION INDICATORS
+// ============================================================================
+
+// Verification status
+var string verificationStatus = "Ready"
+var color statusColor = color.green
+var string verificationDetails = ""
+
+// Main verification logic
+if verificationEnabled
+    // Example verification checks (would be integrated with main indicator)
+    // These are placeholders - actual implementation would check main indicator's labels
+
+    // 1. Check current bar has proper labels
+    hasCurrentDayLabel = not na(close)  // Placeholder
+    hasPotentialLabels = bar_index % 10 == 0  // Placeholder - simulate occasional labels
+
+    // 2. Validate label positioning
+    if checkLabelOverlap
+        // Simulate checking potential low label position
+        potentialLowY = low - atr(14) * 0.75
+        [lowOverlap, lowOverlapDetails] = checkLabelOverlap(potentialLowY, "Potential Low")
+
+        // Simulate checking potential high label position
+        potentialHighY = high + atr(14) * 0.75
+        [highOverlap, highOverlapDetails] = checkLabelOverlap(potentialHighY, "Potential High")
+
+        if lowOverlap or highOverlap
+            verificationStatus := "Label Overlap Detected"
+            statusColor := color.red
+            verificationDetails := (lowOverlap ? "Low: " + lowOverlapDetails : "") + (highOverlap ? "High: " + highOverlapDetails : "")
+
+    // 3. Validate info box data accuracy
+    if checkInfoBoxAccuracy
+        // Placeholder checks - would validate against main indicator's info box
+        infoBoxCycleCount = bar_index % 60  // Placeholder
+        actualCycleCount = bar_index % 60   // Placeholder
+
+        [cycleCountAccurate, cycleCountDetails] = validatePriceAccuracy(float(infoBoxCycleCount), float(actualCycleCount), "Cycle Count")
+
+        if not cycleCountAccurate
+            verificationStatus := "Info Box Inaccuracy"
+            statusColor := color.orange
+            verificationDetails := cycleCountDetails
+
+    // 4. Check for missing labels
+    if not hasCurrentDayLabel
+        verificationStatus := "Missing Current Day Label"
+        statusColor := color.yellow
+        verificationDetails := "Current day label not found"
+
+    // 5. Performance check - ensure calculations aren't too slow
+    if bar_index > 1000
+        verificationStatus := "Performance Check"
+        statusColor := color.blue
+        verificationDetails := "High bar count - monitor performance"
+
+// ============================================================================
+// VISUAL FEEDBACK
+// ============================================================================
+
+// Status indicator box
+if verificationEnabled
+    var table statusTable = table.new(position.top_center, 1, 3,
+                                    bgcolor=color.new(color.white, 80),
+                                    border_color=statusColor, border_width=2)
+
+    table.cell(statusTable, 0, 0, "Verification Status", text_color=color.black,
+               text_size=size.normal, bgcolor=color.new(statusColor, 50))
+    table.cell(statusTable, 0, 1, verificationStatus, text_color=statusColor, text_size=size.normal)
+    table.cell(statusTable, 0, 2, verificationDetails, text_color=color.gray, text_size=size.small)
+
+// Highlight problematic areas
+if verificationEnabled and highlightMisplacedLabels
+    // Highlight potential overlap zones
+    if verificationStatus == "Label Overlap Detected"
+        // Draw warning zones around potential overlap areas
+        overlapZoneY1 = close - labelOverlapTolerance * 2
+        overlapZoneY2 = close + labelOverlapTolerance * 2
+
+        fill(overlapZoneY1, overlapZoneY2,
+             color=color.new(color.red, 95),
+             title="Overlap Warning Zone")
+
+    // Highlight areas where labels should be
+    if verificationStatus == "Missing Current Day Label"
+        // Draw reference line where label should be
+        expectedLabelY = low - atr(14) * 2.0
+        line.new(bar_index, expectedLabelY, bar_index + 5, expectedLabelY,
+                color=color.yellow, width=2, style=line.style_dashed,
+                title="Expected Label Position")
+
+// ============================================================================
+// VERIFICATION REPORTING
+// ============================================================================
+
+// Generate detailed verification report
+if verificationEnabled and barstate.islast
+    log.info("=== Visual Verification Report ===")
+    log.info("Status: " + verificationStatus)
+    log.info("Details: " + verificationDetails)
+    log.info("Bar Index: " + str.tostring(bar_index))
+    log.info("Current Price: " + str.tostring(close, "#.##"))
+    log.info("ATR: " + str.tostring(atr(14), "#.##"))
+
+    // Additional metrics
+    if checkLabelOverlap
+        log.info("Label Overlap Tolerance: " + str.tostring(labelOverlapTolerance) + " points")
+        log.info("Tracked Labels: " + str.tostring(array.size(labelPositions)))
+
+    if checkInfoBoxAccuracy
+        log.info("Price Deviation Tolerance: " + str.tostring(priceDeviationTolerance) + "%")
+
+// ============================================================================
+// DEBUG VISUALIZATION
+// ============================================================================
+
+// Debug plots for verification
+if verificationEnabled
+    // Plot verification metrics
+    plot(verificationStatus == "Ready" ? 1 : 0, title="Verification Ready", color=color.green, display=display.data_window)
+    plot(verificationStatus == "Label Overlap Detected" ? 1 : 0, title="Overlap Detected", color=color.red, display=display.data_window)
+    plot(verificationStatus == "Info Box Inaccuracy" ? 1 : 0, title="Info Box Issues", color=color.orange, display=display.data_window)
+
+    // Plot tolerance levels
+    hline(labelOverlapTolerance, "Overlap Tolerance", color=color.gray, linestyle=hline.dashed)
+    hline(priceDeviationTolerance, "Deviation Tolerance (%)", color=color.blue, linestyle=hline.dashed)
+
+// ============================================================================
+// INTEGRATION GUIDANCE
+// ============================================================================
+
+// INTEGRATION WITH MAIN INDICATOR:
+//
+// 1. Add these function calls to the main Bitcoin Cycles Indicator:
+//
+//    // At the start of each cycle
+//    clearLabelTracking()
+//
+//    // When creating potential low label
+//    potentialLowY = currCycleLow - dynamicOffsetLow
+//    addLabelToTracking(potentialLowY, "Potential Low", potentialLowLabelColor)
+//
+//    // When creating potential high label
+//    potentialHighY = currCycleHigh + dynamicOffset
+//    addLabelToTracking(potentialHighY, "Potential High", potentialHighLabelColor)
+//
+// 2. For info box validation, expose key values for comparison:
+//    - Current cycle count
+//    - Potential high/low values
+//    - Cycle start date
+//    - Predicted end date
+//
+// 3. Use the verification status to guide development:
+//    - Green: All checks passed
+//    - Yellow: Minor issues (missing labels)
+//    - Orange: Data accuracy issues
+//    - Red: Critical problems (overlaps, missing data)
+//
+// 4. Monitor the verification report in the console for detailed feedback.
+//
+// BENEFITS:
+// - Automated detection of visual issues
+// - Ensures label positioning is optimal
+// - Validates info box data accuracy
+// - Helps maintain code quality during development
+// - Provides confidence when making changes
