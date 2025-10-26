@@ -1,22 +1,30 @@
 //@version=6
 //@author=dirtpupfc
-//@version=1.2
-//@license=Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License
+//@version=1.3
+//@license=MIT License
 //@description=Bitcoin Cycles Indicator - Tracks cycle lows and highs across Daily, Weekly, Monthly, and Custom timeframes
 //
-// This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License.
-// To view a copy of this license, visit http://creativecommons.org/licenses/by-nc-sa/4.0/
+// MIT License
 //
-// You are free to:
-//   - Share: copy and redistribute the material in any medium or format
-//   - Adapt: remix, transform, and build upon the material
+// Copyright (c) 2024 dirtpupfc
 //
-// Under the following terms:
-//   - Attribution: You must give appropriate credit, provide a link to the license, and indicate if changes were made
-//   - NonCommercial: You may not use the material for commercial purposes
-//   - ShareAlike: If you remix, transform, or build upon the material, you must distribute your contributions under the same license
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
 //
-// For commercial use or licensing inquiries, please contact the author.
+// The above copyright notice and this permission notice shall be included in all
+// copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+// SOFTWARE.
 
 indicator("Bitcoin Cycles Indicator", shorttitle="BTC Cycles", max_bars_back=5000, overlay=true)
 
@@ -60,7 +68,7 @@ getTimeframeType() =>
 getDefaultMinCycle(timeframeType) =>
     switch timeframeType
         "Daily" => 40
-        "Weekly" => 20
+        "Weekly" => 5
         "Monthly" => 40
         "Hourly" => 960  // 40 days * 24 hours
         => 40  // Default fallback
@@ -68,7 +76,7 @@ getDefaultMinCycle(timeframeType) =>
 getDefaultMaxCycle(timeframeType) =>
     switch timeframeType
         "Daily" => 70
-        "Weekly" => 32
+        "Weekly" => 13
         "Monthly" => 54
         "Hourly" => 1440  // 60 days * 24 hours (default cycle length)
         => 70  // Default fallback
@@ -79,8 +87,8 @@ currentTimeframe = getTimeframeType()
 // Store cycle lengths for each timeframe
 var int dailyMinCycle = 40
 var int dailyMaxCycle = 70
-var int weeklyMinCycle = 20
-var int weeklyMaxCycle = 32
+var int weeklyMinCycle = 5
+var int weeklyMaxCycle = 13
 var int monthlyMinCycle = 40
 var int monthlyMaxCycle = 54
 var int customMinCycle = 40
@@ -92,8 +100,8 @@ dailyMinInput = input.int(40, title="Min Cycle Length", minval=1, group="Daily T
 dailyMaxInput = input.int(70, title="Max Cycle Length", minval=1, group="Daily Timeframe", tooltip="Max cycle length for daily timeframe")
 
 // Weekly Timeframe Settings  
-weeklyMinInput = input.int(20, title="Min Cycle Length", minval=1, group="Weekly Timeframe", tooltip="Min cycle length for weekly timeframe")
-weeklyMaxInput = input.int(32, title="Max Cycle Length", minval=1, group="Weekly Timeframe", tooltip="Max cycle length for weekly timeframe")
+weeklyMinInput = input.int(5, title="Min Cycle Length", minval=1, group="Weekly Timeframe", tooltip="Min cycle length for weekly timeframe")
+weeklyMaxInput = input.int(13, title="Max Cycle Length", minval=1, group="Weekly Timeframe", tooltip="Max cycle length for weekly timeframe")
 
 // Monthly Timeframe Settings
 monthlyMinInput = input.int(40, title="Min Cycle Length", minval=1, group="Monthly Timeframe", tooltip="Min cycle length for monthly timeframe")
@@ -223,6 +231,14 @@ var int currCycleHighBarIndex = na
 // Track previous cycle low for failed cycle detection
 var float prevCycleLow = na
 
+// Track if current cycle has failed (separate from currCycleLow to avoid interfering with cycle window logic)
+var bool cycleHasFailed = false
+
+// Track average cycle length for dynamic projection box
+var float averageCycleLength = na
+var int completedCyclesCount = 0
+var float totalCycleLength = 0.0
+
 // Labels for potential cycle low/high and current cycle day count
 var label potentialLowLabel = na
 var label potentialHighLabel = na
@@ -261,16 +277,29 @@ if (time >= startDate)
     currCycleBarCount := bar_index - cycleStartBarIndex
     array.push(barIndexes, bar_index)
 
-    if high > currCycleHigh or na(currCycleHigh)
-        currCycleHigh := high
-        currCycleHighBarIndex := bar_index - 1
+    // Check for failed cycle throughout the entire cycle (not just in cycle window)
+    // A cycle fails if any low in the current cycle goes below the previous cycle's final low
+    // We track this separately from currCycleLow to avoid interfering with cycle window logic
+    if not na(prevCycleLow) and low < prevCycleLow
+        // This is a failed cycle - set the flag but don't modify currCycleLow
+        cycleHasFailed := true
+
+    // Find the actual highest high in the current cycle so far
+    // Use the same logic as final high calculation but search up to current bar
+    int tempCycleHighBarIndex = findHighestIndex(barIndexes, cycleStartBarIndex, bar_index)
+    int barsBackToHigh = na
+    
+    // Only update if we found a valid high and it's different from current
+    if not na(tempCycleHighBarIndex) and (na(currCycleHighBarIndex) or tempCycleHighBarIndex != currCycleHighBarIndex)
+        currCycleHighBarIndex := tempCycleHighBarIndex
+        barsBackToHigh := bar_index - currCycleHighBarIndex
+        currCycleHigh := high[barsBackToHigh]
         
         // Update or create a potential high label with time unit number
         if not na(potentialHighLabel)
             label.delete(potentialHighLabel)
 
         // Calculate offset based on the actual bar height and wick
-        int barsBackToHigh = bar_index - currCycleHighBarIndex
         float currentBarHeight = high[barsBackToHigh] - low[barsBackToHigh]
         float currentBarWickHeight = high[barsBackToHigh] - math.max(open[barsBackToHigh], close[barsBackToHigh])
         
@@ -320,7 +349,7 @@ if (time >= startDate)
             
             // Check if this is a failed cycle (lower than previous cycle low)
             string labelText = "Potential Low\n" + timeUnit + ": " + str.tostring(currCycleBarCount)
-            if not na(prevCycleLow) and currCycleLow < prevCycleLow
+            if cycleHasFailed
                 labelText += "\nFailed Cycle"
             
             // Once we have a potential low, remove Failed Cycle from current day count label
@@ -376,7 +405,7 @@ if currCycleBarCount >= maxCycleLength
     
     // Check if this is a failed cycle (lower than previous cycle low)
     string finalLowLabelText = "Final Low\n" + timeUnit + ": " + str.tostring(finalCycleLowCount)
-    if not na(prevCycleLow) and currCycleLow < prevCycleLow
+    if cycleHasFailed
         finalLowLabelText += "\nFailed Cycle"
     
     label.new(currCycleLowBarIndex, currCycleLow - optimalOffsetFinalLow,
@@ -440,12 +469,19 @@ if currCycleBarCount >= maxCycleLength
     // Store the current cycle low as previous before resetting
     prevCycleLow := currCycleLow
     
+    // Update average cycle length with the completed cycle
+    float completedCycleLength = currCycleLowBarIndex - cycleStartBarIndex
+    completedCyclesCount := completedCyclesCount + 1
+    totalCycleLength := totalCycleLength + completedCycleLength
+    averageCycleLength := totalCycleLength / completedCyclesCount
+    
     // Reset variables for the next cycle
     cycleStartBarIndex := currCycleLowBarIndex
     currCycleLow := na
     currCycleLowBarIndex := na
     currCycleHigh := na
     currCycleHighBarIndex := na
+    cycleHasFailed := false  // Reset failed cycle flag for new cycle
     
     // Clear the bar indexes array for the new cycle
     array.clear(barIndexes)
@@ -466,9 +502,9 @@ if not na(prevPotentialLowBarIndex)
 // Create the label text with both counts
 string labelText = timeUnit + ": " + str.tostring(currCycleBarCount)
 
-// Add Failed Cycle warning to current day count label if current low is below previous cycle low
-// (but only if we don't have a potential low label yet)
-if not na(prevCycleLow) and low < prevCycleLow and na(potentialLowLabel)
+// Add Failed Cycle warning to current day count label if current cycle has failed
+// A cycle fails if any low in the current cycle goes below the previous cycle's final low
+if cycleHasFailed
     labelText += "\nFailed Cycle"
 
 // Conditionally add the potential new cycle count to the label
@@ -491,18 +527,20 @@ var label cycleProjectionLabel = na
 
 // Draw the projection box when we're in an active cycle
 if not na(cycleStartBarIndex) and currCycleBarCount < maxCycleLength and currCycleBarCount >= 0
-    // Calculate where the cycle should end based on timeframe
-    int projectionLength = switch currentTimeframe
-        "Daily" => 60    // 60 days
-        "Weekly" => 26   // 26 weeks
-        "Monthly" => 48  // 48 months
-        "Custom" => 60   // Use daily default for custom
-        => 60  // Default fallback
+    // Calculate where the cycle should end based on average cycle length or maxCycleLength
+    int projectionLength = not na(averageCycleLength) ? math.round(averageCycleLength) : maxCycleLength
     
     int projectedEndBarIndex = cycleStartBarIndex + projectionLength
     
-    // Calculate the box width (5% on either side)
-    int boxWidth = math.round(projectionLength * 0.05)
+    // Calculate the box width (5% on either side, with minimum width)
+    // For shorter cycles, use a more substantial minimum width
+    int minWidth = switch currentTimeframe
+        "Daily" => 3    // 3 days minimum
+        "Weekly" => 2   // 2 weeks minimum  
+        "Monthly" => 2  // 2 months minimum
+        "Custom" => 3   // 3 bars minimum
+        => 3  // Default fallback
+    int boxWidth = math.max(minWidth, math.round(projectionLength * 0.05))
     int boxStartBarIndex = projectedEndBarIndex - boxWidth
     int boxEndBarIndex = projectedEndBarIndex + boxWidth
     
@@ -527,22 +565,22 @@ if not na(cycleStartBarIndex) and currCycleBarCount < maxCycleLength and currCyc
         // Calculate projected date based on timeframe
         cycleStartDate = time[bar_index - cycleStartBarIndex]
         int daysToAdd = switch currentTimeframe
-            "Daily" => 60    // Default daily cycle length
-            "Weekly" => 182  // 26 weeks * 7 days
-            "Monthly" => 1440 // 48 months * 30 days (approximate)
-            "Custom" => 60   // Use daily default for custom
-            => 60  // Default fallback
+            "Daily" => projectionLength    // Use dynamic projection length for daily
+            "Weekly" => projectionLength * 7  // Convert weeks to days
+            "Monthly" => projectionLength * 30 // Convert months to days (approximate)
+            "Custom" => projectionLength   // Use dynamic projection length for custom
+            => projectionLength  // Use dynamic projection length as fallback
         
         projectedEndDate = cycleStartDate + (daysToAdd * 24 * 60 * 60 * 1000)  // Add days in milliseconds
         dateText = str.format_time(projectedEndDate, "MMM d", syminfo.timezone)
         
-        // Create timeframe-appropriate label text
+        // Create timeframe-appropriate label text using dynamic projection length
         string projectionLabelText = switch currentTimeframe
-            "Daily" => "Cycle End\n" + dateText
-            "Weekly" => "26W End\n" + dateText
-            "Monthly" => "48M End\n" + dateText
-            "Custom" => "Cycle End\n" + dateText
-            => "Cycle End\n" + dateText  // Default fallback
+            "Daily" => str.tostring(projectionLength) + "D End\n" + dateText
+            "Weekly" => str.tostring(projectionLength) + "W End\n" + dateText
+            "Monthly" => str.tostring(projectionLength) + "M End\n" + dateText
+            "Custom" => str.tostring(projectionLength) + "B End\n" + dateText
+            => str.tostring(projectionLength) + "B End\n" + dateText  // Default fallback
         
         // Position label at the current bar's price level, centered on the box
         float labelY = close  // Use current bar's close price
@@ -581,7 +619,7 @@ headerTextSize = infoBoxTextSize == "Small" ? size.small : (infoBoxTextSize == "
 contentTextSize = infoBoxTextSize == "Small" ? size.tiny : (infoBoxTextSize == "Large" ? size.normal : size.small)
 
 // Calculate table size based on whether inputs info is shown
-tableRows = showInputsInfo ? 11 : 8  // 8 base rows + 3 input rows (header + 2 data) if enabled
+tableRows = showInputsInfo ? 12 : 9  // 9 base rows + 3 input rows (header + 2 data) if enabled
 
 // Initialize table only once and only if enabled
 if showInfoBox and na(infoTable)
@@ -597,7 +635,7 @@ formatDate(timestamp) =>
     if na(timestamp)
         "N/A"
     else
-        str.format_time(timestamp, "yyyy-MM-dd", syminfo.timezone)
+        str.format_time(math.round(timestamp), "yyyy-MM-dd", syminfo.timezone)
 
 // Helper function to format prices
 formatPrice(price) =>
@@ -609,13 +647,14 @@ formatPrice(price) =>
 // Calculate cycle start date
 cycleStartDate = na(cycleStartBarIndex) ? na : time[bar_index - cycleStartBarIndex]
 
-// Calculate predicted cycle end date (use same values as projection box)
+// Calculate predicted cycle end date (use dynamic average or maxCycleLength)
+float dynamicProjectionLength = not na(averageCycleLength) ? averageCycleLength : maxCycleLength
 predictedCycleLength = switch currentTimeframe
-    "Daily" => 60 * 24 * 60 * 60 * 1000      // 60 days in milliseconds
-    "Weekly" => 26 * 7 * 24 * 60 * 60 * 1000 // 26 weeks in milliseconds
-    "Monthly" => 48 * 30 * 24 * 60 * 60 * 1000 // 48 months in milliseconds
-    "Custom" => 60 * 24 * 60 * 60 * 1000     // Use daily default for custom
-    => 60 * 24 * 60 * 60 * 1000            // Default fallback
+    "Daily" => dynamicProjectionLength * 24 * 60 * 60 * 1000      // Use dynamic projection length in days
+    "Weekly" => dynamicProjectionLength * 7 * 24 * 60 * 60 * 1000 // Use dynamic projection length * 7 days in milliseconds
+    "Monthly" => dynamicProjectionLength * 30 * 24 * 60 * 60 * 1000 // Use dynamic projection length * 30 days in milliseconds
+    "Custom" => dynamicProjectionLength * 24 * 60 * 60 * 1000     // Use dynamic projection length in days
+    => dynamicProjectionLength * 24 * 60 * 60 * 1000            // Use dynamic projection length in days
 
 predictedEndDate = na(cycleStartBarIndex) ? na : time[bar_index - cycleStartBarIndex] + predictedCycleLength
 
@@ -628,7 +667,8 @@ string cycleDayText = "Current Day: " + str.tostring(currCycleBarCount)
 string potentialHighText = "Potential High: " + formatPrice(currCycleHigh)
 string potentialLowText = "Potential Low: " + formatPrice(currCycleLow)
 string prevLowText = "Prev Cycle Low: " + formatPrice(prevCycleLow)
-string failedCycleText = not na(prevCycleLow) and not na(currCycleLow) and currCycleLow < prevCycleLow ? "⚠️ FAILED CYCLE" : "✅ Cycle OK"
+string failedCycleText = cycleHasFailed ? "⚠️ FAILED CYCLE" : "✅ Cycle OK"
+string avgCycleText = not na(averageCycleLength) ? "Avg Cycle: " + str.tostring(math.round(averageCycleLength)) + " (" + str.tostring(completedCyclesCount) + " cycles)" : "Avg Cycle: N/A"
 
 // Only create table cells if info box is enabled
 if showInfoBox and not na(infoTable)
@@ -650,12 +690,13 @@ if showInfoBox and not na(infoTable)
     table.cell(infoTable, 0, 5, potentialLowText, text_color=potentialLowColor, text_size=contentTextSize)
     table.cell(infoTable, 0, 6, prevLowText, text_color=prevLowColor, text_size=contentTextSize)
     table.cell(infoTable, 0, 7, failedCycleText, text_color=failedCycleText == "⚠️ FAILED CYCLE" ? color.red : color.green, text_size=contentTextSize)
+    table.cell(infoTable, 0, 8, avgCycleText, text_color=infoBoxTextColor, text_size=contentTextSize)
     
     // Add inputs info section (if enabled)
     if showInputsInfo
-        table.cell(infoTable, 0, 8, "Inputs", text_color=infoBoxTextColor, text_size=contentTextSize, bgcolor=infoBoxHeaderBgColor)
-        table.cell(infoTable, 0, 9, timeframeText, text_color=infoBoxTextColor, text_size=contentTextSize)
-        table.cell(infoTable, 0, 10, storedSettingsText, text_color=infoBoxTextColor, text_size=contentTextSize)
+        table.cell(infoTable, 0, 9, "Inputs", text_color=infoBoxTextColor, text_size=contentTextSize, bgcolor=infoBoxHeaderBgColor)
+        table.cell(infoTable, 0, 10, timeframeText, text_color=infoBoxTextColor, text_size=contentTextSize)
+        table.cell(infoTable, 0, 11, storedSettingsText, text_color=infoBoxTextColor, text_size=contentTextSize)
 
 // ============================================================================
 // EXPOSE VALUES FOR STRATEGY USE
@@ -681,7 +722,7 @@ plot(currCycleBarCount >= minCycleLength and currCycleBarCount < maxCycleLength 
 plot(currCycleBarCount >= maxCycleLength ? 1 : na, "Cycle Complete", color=color.purple, display=display.data_window)
 
 // Failed cycle detection
-plot(not na(prevCycleLow) and not na(currCycleLow) and currCycleLow < prevCycleLow ? 1 : na, "Failed Cycle", color=color.red, display=display.data_window)
+plot(cycleHasFailed ? 1 : na, "Failed Cycle", color=color.red, display=display.data_window)
 
 // Cycle timing information
 plot(cycleStartIndex, "Cycle Start Bar Index", color=color.gray, display=display.data_window)

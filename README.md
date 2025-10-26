@@ -14,7 +14,7 @@ The Bitcoin Cycles Indicator is designed to identify and track cyclical patterns
 - **Dynamic Cycle Detection**: Automatically detects cycle lows and highs within configurable ranges
 - **Visual Indicators**: Color-coded labels for potential and final cycle points
 - **Failed Cycle Detection**: Identifies when cycles break down (lower lows)
-- **Projection Boxes**: Visual estimates of cycle end ranges
+- **Dynamic Projection Boxes**: Visual estimates of cycle end ranges using average cycle length
 - **Comprehensive Info Box**: Real-time cycle information with theme-aware display
 - **Strategy Integration**: Exposes cycle data for use in TradingView strategies
 
@@ -39,7 +39,7 @@ tv-indicator-bitcoin-cycles/
 │   ├── dev-workflow.sh
 │   ├── pine-syntax-checker.py
 │   └── test-runner.sh
-├── LICENSE                          # Creative Commons license
+├── LICENSE                          # MIT License
 └── README.md                        # This file
 ```
 
@@ -54,7 +54,7 @@ tv-indicator-bitcoin-cycles/
 | Timeframe | Min Cycle | Max Cycle | Notes |
 |-----------|-----------|-----------|-------|
 | Daily     | 40 days   | 70 days   | Most commonly used |
-| Weekly    | 20 weeks  | 32 weeks  | Medium-term analysis |
+| Weekly    | 5 weeks   | 13 weeks  | Medium-term analysis |
 | Monthly   | 40 months | 54 months | Long-term cycles |
 | Custom    | 40 bars   | 70 bars   | User-defined timeframe |
 
@@ -78,6 +78,14 @@ tv-indicator-bitcoin-cycles/
 ### Failed Cycle Detection
 
 The indicator automatically detects failed cycles when the current cycle low falls below the previous cycle low, displaying a "Failed Cycle" warning.
+
+### Dynamic Projection Boxes
+
+The indicator now uses adaptive projection boxes that:
+- **Track Average Cycle Length**: Calculates the average length of completed cycles
+- **Dynamic Labels**: Show actual projection length (e.g., "13W End" instead of hardcoded values)
+- **Improved Visibility**: Minimum box widths ensure proper visibility across all timeframes
+- **Real-time Updates**: Projection boxes adjust as more cycles complete
 
 ## Development
 
@@ -113,7 +121,7 @@ The repository includes a comprehensive testing suite:
 
 ## License
 
-This project is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License. See [LICENSE](LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## Support
 
@@ -131,5 +139,5 @@ This indicator is for educational and analysis purposes only. It should not be c
 ---
 
 **Author**: dirtpupfc  
-**Version**: 1.2  
-**Last Updated**: 2025-09-20
+**Version**: 1.3  
+**Last Updated**: 2025-01-27
